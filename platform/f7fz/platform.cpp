@@ -4,7 +4,7 @@
 #include "../../menu/menu.h"
 
 #include <furi.h>
-#include <gui/canvas_i.h>
+#include <gui/canvas.h>
 #include <gui/gui.h>
 #include <input/input.h>
 #include <storage/storage.h>
@@ -142,7 +142,7 @@ static void drawCb(Canvas* canvas, void* ctx) {
 
     if(furi_mutex_acquire(st->mutex, 0) != FuriStatusOk) return;
 
-    uint8_t* ssd = u8g2_GetBufferPtr(&canvas->fb);
+    uint8_t* ssd = canvas_get_buffer(canvas);
     if(ssd) packSsd(st->game->fb, ssd);
 
     furi_mutex_release(st->mutex);
