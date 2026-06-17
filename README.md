@@ -1,5 +1,23 @@
 # Flipcraft
 
+## Screenshots
+
+| World | World | Inventory |
+|---|---|---|
+| ![Forest](.catalog/screenshots/forest.png) | ![Forest 2](.catalog/screenshots/forest2.png) | ![Inventory](.catalog/screenshots/inventory.png) |
+
+| Crafting | Crafting | Crafting |
+|---|---|---|
+| ![Craft table](.catalog/screenshots/crafttable.png) | ![Crafting at craft table](.catalog/screenshots/crafting_crafttable.png) | ![Craftable view](.catalog/screenshots/craftable_view.png) |
+
+| Storage | Furnace | Menu |
+|---|---|---|
+| ![Box](.catalog/screenshots/box.png) | ![Melting sand](.catalog/screenshots/melting_sand.png) | ![Home menu](.catalog/screenshots/menu_home.png) |
+
+| Menu | Menu |
+|---|---|
+| ![Create menu](.catalog/screenshots/menu_create.png) | ![Delete menu](.catalog/screenshots/menu_delete.png) |
+
 ## Controls
 
 ### World
@@ -22,5 +40,4 @@
 
 ### System
 
-- `Ok` + `Back`: quit
-# FlipperMinecraft
+- `Ok` + `Back`: quit (bug press first "OK")

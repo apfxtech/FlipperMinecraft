@@ -20,5 +20,5 @@ App(
     fap_icon="assets/icon.png",
     fap_author="@apfxtech",
     fap_version="2.1",
-    fap_weburl="https://github.com/apfxtech/FlipperMinecraft",
+    fap_weburl="https://github.com/apfxtech/Flipcraft.git",
 )
