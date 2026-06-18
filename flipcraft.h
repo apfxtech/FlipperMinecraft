@@ -58,8 +58,8 @@ constexpr int PICKUPSIDEPOS        = 28;
 constexpr int PLAYERCROUCHCAMHEIGHT= 22;
 constexpr int MIDDLEOFVOID         = 0xA0;
 constexpr int BLOCKMIDDLEOFVOID    = 0xC;
-constexpr int GRAVITY              = 15;  
-constexpr int JUMPSTRENGTH         = 17; 
+constexpr int GRAVITY              = 15;
+constexpr int JUMPSTRENGTH         = 17;
 constexpr int SPEEDFACTOR          = 0x40;
 constexpr int RAYCASTMAXLENGTH     = 0x40;
 constexpr int BREAKTIME            = 24;  
@@ -155,8 +155,12 @@ constexpr int SCREEN_WIDTH  = 128;
 constexpr int SCREEN_HEIGHT = 64;
 constexpr int UI_WIDTH      = 96;
 constexpr int UI_X_OFFSET   = (SCREEN_WIDTH - UI_WIDTH) / 2;
-constexpr int LENS          = 56; 
-constexpr int CLIP          = 3;  
+constexpr int LENS          = 56;
+constexpr int CLIP          = 3;
+
+constexpr float BOB_SPEED        = 0.35f;
+constexpr float BOB_EASE         = 0.20f;
+constexpr float CAM_BOB_AMPLITUDE= 1.3f;
 
 // floor(x) -> int without a libm call. vcvt truncates toward zero (1 cycle on
 // M4F), so correct downward for negatives that have a fractional part.

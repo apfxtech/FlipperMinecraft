@@ -61,6 +61,9 @@ public:
     int loadedTile = -1;
     int score = 0;
 
+    float bobTimer = 0.0f;
+    float bobAmt   = 0.0f;
+
     uint8_t storageUsed[STORAGE_CAPACITY / 8] = {0}; // free-slot bitmap for the table
 
     bool setup(const GameConfig& config);

@@ -324,6 +324,12 @@ void Game::miscInputs(const Input& in){
     if(onG&&in.jump)m(M_VELY)=JUMPSTRENGTH; else m(M_VELY)=u8(s8(m(M_VELY))-GRAVITY);
     int dy=s8(m(M_VELY));
     moveAndCollide(dx,dy,dz);
+
+    bool moving = in.forward!=0 && m(M_ONGROUND);
+    if(moving) bobTimer += BOB_SPEED;
+    float target = moving ? 1.0f : 0.0f;
+    if(bobAmt<target){ bobAmt+=BOB_EASE; if(bobAmt>target)bobAmt=target; }
+    else if(bobAmt>target){ bobAmt-=BOB_EASE; if(bobAmt<target)bobAmt=target; }
 }
 
 void Game::updateAllItems(){
@@ -469,8 +475,9 @@ void Game::finishRender(){
 
     world.updateWindow((playerX+PLAYERHALFWIDTH)/BLOCKSIZE, (playerZ+PLAYERHALFWIDTH)/BLOCKSIZE);
     renderer.clearBuffer(); renderer.setCamRot(m(M_ROT));
+    float bobV=sinf(bobTimer*2.0f)*bobAmt;
     renderer.camPos[0]=playerX+PLAYERHALFWIDTH; renderer.camPos[2]=playerZ+PLAYERHALFWIDTH;
-    renderer.camPos[1]=playerY+(m(M_CROUCHING)?PLAYERCROUCHCAMHEIGHT:PLAYERCAMHEIGHT);
+    renderer.camPos[1]=playerY+(m(M_CROUCHING)?PLAYERCROUCHCAMHEIGHT:PLAYERCAMHEIGHT)+bobV*CAM_BOB_AMPLITUDE;
     renderer.renderScene(world);
     for(auto& f:tiles) if(f.active){
         int tex = f.isChest?TEX_CHESTFRONT:(f.lit?TEX_FURNACEFRONTON:TEX_FURNACEFRONTOFF);
