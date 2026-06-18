@@ -121,6 +121,8 @@ static constexpr uint32_t LONG_PRESS_MS = 300;
 static constexpr uint32_t REPEAT_DELAY_MS = 260;
 static constexpr uint32_t REPEAT_RATE_MS = 110;
 
+static constexpr uint32_t GAME_TICK_MS = 80;
+
 struct AppState {
     Game* game = nullptr;
     FuriMutex* mutex = nullptr;
@@ -383,20 +385,43 @@ static void runGame(Game& game, Gui* gui, const char* path) {
     gui_add_view_port(gui, st->view_port, GuiLayerFullscreen);
 
     furi_mutex_acquire(st->mutex, FuriWaitForever);
-    game.frame(Input{});
+    game.simulate(Input{});
+    game.render();
     furi_mutex_release(st->mutex);
     view_port_update(st->view_port);
 
+    const uint32_t TICK_MS = GAME_TICK_MS;
+    const uint32_t MAX_ACC = TICK_MS * 5;
+    uint32_t last = furi_get_tick();
+    uint32_t acc = 0;
+
     while(true) {
-        Input in = pollInput(st);
+        uint32_t now = furi_get_tick();
+        acc += now - last;
+        last = now;
+        if(acc > MAX_ACC) acc = MAX_ACC;
+
+        bool stepped = false;
+        while(acc >= TICK_MS) {
+            Input in = pollInput(st);
+            if(st->ev_exit) break;
+            furi_mutex_acquire(st->mutex, FuriWaitForever);
+            game.simulate(in);
+            furi_mutex_release(st->mutex);
+            acc -= TICK_MS;
+            stepped = true;
+        }
         if(st->ev_exit) break;
 
-        furi_mutex_acquire(st->mutex, FuriWaitForever);
-        game.frame(in);
-        furi_mutex_release(st->mutex);
+        if(stepped) {
+            furi_mutex_acquire(st->mutex, FuriWaitForever);
+            bool present = game.render();
+            furi_mutex_release(st->mutex);
+            if(present) view_port_update(st->view_port);
+        }
 
-        view_port_update(st->view_port);
-        delayMs(33);
+        uint32_t ahead = (acc < TICK_MS) ? (TICK_MS - acc) : 1;
+        delayMs(ahead);
     }
 
     furi_mutex_acquire(st->mutex, FuriWaitForever);

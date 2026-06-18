@@ -17,8 +17,9 @@ bool Game::setup(const GameConfig& config) {
 
     playerX=world.hdrPX; playerY=world.hdrPY; playerZ=world.hdrPZ;
     m(M_ROT)=world.hdrRot; rngState=world.hdrRng;
-    m(M_ONGROUND)=0xFF; m(M_NEEDRERENDER)=0xFF; m(M_VELY)=0xFF;
+    m(M_ONGROUND)=0xFF; m(M_VELY)=0xFF;
     m(M_CROUCHING)=0xFF;
+    forceRedraw=true; lastSig=0;
     m(M_HEALTH)=MAXHEALTH; m(M_LOGSINWORLD)=4;
 
     items.clear();
@@ -221,7 +222,7 @@ void Game::handleBreakAndPlace(const Input& in){
             tiles[be].active=false;
             tiles[be].loaded=false;   // destroyed: never flush it back to disk
         }
-        world.setBlock(bx,by,bz,BLOCK_AIR); m(M_NEEDRERENDER)=0xFF;
+        world.setBlock(bx,by,bz,BLOCK_AIR);
         if(net>=STRENGTHFORITEM&&id!=BLOCK_GLASS){
             if(id==BLOCK_GRASS)createEntity(bx,by,bz,ENTITY_DIRT);
             else if(id==BLOCK_STONE)createEntity(bx,by,bz,ENTITY_COBBLE);
@@ -266,7 +267,6 @@ void Game::handleBreakAndPlace(const Input& in){
             tiles.push_back(b);}
         if(blockId==BLOCK_LOG)m(M_LOGSINWORLD)=(uint8_t)(m(M_LOGSINWORLD)+1);
         if(item<0xF0){int c=item-1; if((c&0x0F)==0)c=0; m(M_INVENTORY+slot)=(uint8_t)c;} else m(M_INVENTORY+slot)=0;
-        m(M_NEEDRERENDER)=0xFF;
     }
 }
 
@@ -307,13 +307,13 @@ void Game::moveAndCollide(int dx,int dy,int dz){
     playerX=x;playerY=y;playerZ=z;
 }
 void Game::miscInputs(const Input& in){
-    uint8_t cr=in.crouch?0xFF:0; if(cr!=m(M_CROUCHING)){m(M_CROUCHING)=cr;m(M_NEEDRERENDER)=0xFF;}
+    uint8_t cr=in.crouch?0xFF:0; if(cr!=m(M_CROUCHING)){m(M_CROUCHING)=cr;}
     if(in.turn||in.pitch){int rot=m(M_ROT);int yaw=(rot&0x0F),pitch=(rot>>4)&0x0F;
         yaw=(yaw+in.turn)&0x0F;
 
         if(in.pitch>0 && pitch!=4)  pitch=(pitch+1)&0x0F;
         if(in.pitch<0 && pitch!=12) pitch=(pitch-1)&0x0F;
-        m(M_ROT)=(uint8_t)((pitch<<4)|yaw); m(M_NEEDRERENDER)=0xFF;}
+        m(M_ROT)=(uint8_t)((pitch<<4)|yaw);}
     renderer.setCamRot(m(M_ROT));
     int sinY=(int)renderer.sinYaw(),cosY=(int)renderer.cosYaw();
     int fwd=smul446(in.forward,SPEEDFACTOR);
@@ -342,7 +342,7 @@ void Game::updateAllItems(){
         if(ny<0){ny=0;e.vy=0;}
         uint8_t below=world.getBlock(bx,nby,bz);
         if(below!=BLOCK_AIR&&below!=BLOCK_SAPLING){ e.y=(nby+1)*16; e.vy=0;
-            if(e.id==ENTITY_FALLINGSAND){ world.setBlock(bx,e.y/16,bz,BLOCK_SAND); e.active=false; m(M_NEEDRERENDER)=0xFF; continue; } }
+            if(e.id==ENTITY_FALLINGSAND){ world.setBlock(bx,e.y/16,bz,BLOCK_SAND); e.active=false; continue; } }
         else e.y=ny;
         if(e.id==ENTITY_FALLINGSAND)continue;
 
@@ -413,13 +413,12 @@ void Game::doRandomTicks(){
         if(b==BLOCK_DIRT){ if(!above(x,y,z))continue; bool f=false;
             for(int gx=x-1;gx<=x+1&&!f;gx++)for(int gy=y-1;gy<=y+1&&!f;gy++)for(int gz=z-1;gz<=z+1&&!f;gz++)
                 if(world.getBlock(gx,gy,gz)==BLOCK_GRASS)f=true;
-            if(f){world.setBlock(x,y,z,BLOCK_GRASS);m(M_NEEDRERENDER)=0xFF;}}
-        else if(b==BLOCK_GRASS){ if(!above(x,y,z)){world.setBlock(x,y,z,BLOCK_DIRT);m(M_NEEDRERENDER)=0xFF;}}
+            if(f){world.setBlock(x,y,z,BLOCK_GRASS);}}
+        else if(b==BLOCK_GRASS){ if(!above(x,y,z)){world.setBlock(x,y,z,BLOCK_DIRT);}}
         else if(b==BLOCK_LEAVES){ if(m(M_LOGSINWORLD)==0){world.setBlock(x,y,z,BLOCK_AIR);
                 int r=rng(); if(r<LEAVES_SAPLING_PROBABILITY)createEntity(x,y,z,ENTITY_SAPLING);
                 else if(r<LEAVES_STICK_PROBABILITY)createEntity(x,y,z,ENTITY_STICK);
-                else if(r<LEAVES_APPLE_PROBABILITY)createEntity(x,y,z,ENTITY_APPLE);
-                m(M_NEEDRERENDER)=0xFF;}}
+                else if(r<LEAVES_APPLE_PROBABILITY)createEntity(x,y,z,ENTITY_APPLE);}}
         else if(b==BLOCK_SAPLING){
             int extraHeight=rng()&1;
             int lowerTop=y+2+extraHeight;
@@ -436,7 +435,6 @@ void Game::doRandomTicks(){
                 if(old==BLOCK_AIR||old==BLOCK_LEAVES){world.setBlock(x,ty,z,BLOCK_LOG);logs++;}
             }
             m(M_LOGSINWORLD)=(uint8_t)(m(M_LOGSINWORLD)+logs);
-            m(M_NEEDRERENDER)=0xFF;
         }
     }
 }
@@ -455,9 +453,8 @@ void Game::respawn(){
     }
     playerX=x;playerY=by*BLOCKSIZE;playerZ=z;
     m(M_VELY)=0;m(M_ONGROUND)=0;m(M_HEALTH)=MAXHEALTH;
-    m(M_NEEDRERENDER)=0xFF;
     screenId=SCR_PLAY;selSlot=-1;loadedTile=-1;gameOverPending=false;
-    finishRender();
+    world.updateWindow((playerX+PLAYERHALFWIDTH)/BLOCKSIZE,(playerZ+PLAYERHALFWIDTH)/BLOCKSIZE);
 }
 
 void Game::drawHotbar(){
@@ -472,8 +469,6 @@ void Game::drawHotbar(){
     for(int i=0;i<MAXHEALTH;i++)screen.heart(19+i*6,43,i<(int)m(M_HEALTH));
 }
 void Game::finishRender(){
-
-    world.updateWindow((playerX+PLAYERHALFWIDTH)/BLOCKSIZE, (playerZ+PLAYERHALFWIDTH)/BLOCKSIZE);
     renderer.clearBuffer(); renderer.setCamRot(m(M_ROT));
     float bobV=sinf(bobTimer*2.0f)*bobAmt;
     renderer.camPos[0]=playerX+PLAYERHALFWIDTH; renderer.camPos[2]=playerZ+PLAYERHALFWIDTH;
@@ -498,8 +493,7 @@ void Game::worldFrame(const Input& in){
     updateAllItems(); doRandomTicks();
     simulateFurnaces();   // every furnace in the active window smelts, GUI open or not
     if(gameOverPending){gameOverPending=false; score=0; screenId=SCR_GAMEOVER; return;}
-    finishRender();
-    m(M_NEEDRERENDER)=0;
+    world.updateWindow((playerX+PLAYERHALFWIDTH)/BLOCKSIZE,(playerZ+PLAYERHALFWIDTH)/BLOCKSIZE);
 }
 
 std::vector<Game::Slot> Game::buildSlots(ScreenId s){
@@ -534,7 +528,7 @@ void Game::guiFrame(const Input& in){
     auto slots=buildSlots(screenId);
     if(in.openInventory){
         if(loadedTile>=0 && (size_t)loadedTile<tiles.size()) flushTileStorage(loadedTile);
-        screenId=SCR_PLAY; selSlot=-1; m(M_NEEDRERENDER)=0xFF; loadedTile=-1; return;}
+        screenId=SCR_PLAY; selSlot=-1; loadedTile=-1; return;}
 
     if((in.navX||in.navY)&&!slots.empty()){
 
@@ -580,7 +574,6 @@ void Game::guiFrame(const Input& in){
         }
     }
     if(screenId==SCR_FURNACE)updateAllFurnaces();
-    drawGui();
 }
 void Game::drawGui(){
     if(screenId==SCR_GAMEOVER){ screen.clearScreen();
@@ -607,15 +600,44 @@ void Game::drawGui(){
         screen.x1=s.sx+3;screen.y1=s.sy+3;screen.x2=s.sx+4;screen.y2=s.sy+4;screen.drawRect();}
 }
 
-void Game::frame(const Input& in){
-    if(screenId==SCR_GAMEOVER){ if(in.menuSelect){respawn();} else drawGui(); return; }
+void Game::simulate(const Input& in){
+    if(screenId==SCR_GAMEOVER){ if(in.menuSelect)respawn(); return; }
     if(screenId==SCR_PLAY){
-        if(in.openInventory){screenId=SCR_INVENTORY;cursor=0;selSlot=-1;drawGui();return;}
+        if(in.openInventory){screenId=SCR_INVENTORY;cursor=0;selSlot=-1;return;}
         worldFrame(in);
-        if(screenId!=SCR_PLAY)drawGui();
     } else {
         guiFrame(in);
     }
+}
+
+uint32_t Game::visualSignature() const {
+    uint32_t h=2166136261u;
+    auto mix=[&](uint32_t v){ h^=v; h*=16777619u; };
+    auto mixf=[&](float f){ uint32_t u; memcpy(&u,&f,4); mix(u); };
+    mix((uint32_t)screenId); mix((uint32_t)(cursor+1)); mix((uint32_t)(selSlot+1));
+    mix((uint32_t)(loadedTile+1)); mix((uint32_t)gameOverPending); mix((uint32_t)score);
+    mix((uint32_t)playerX); mix((uint32_t)playerY); mix((uint32_t)playerZ);
+    mixf(bobTimer); mixf(bobAmt);
+    mix(world.revision);
+    for(int i=0;i<42;i++) mix(ram[i]);
+    for(const auto& e:items) if(e.active){ mix((uint32_t)e.id); mix((uint32_t)e.x); mix((uint32_t)e.y); mix((uint32_t)e.z); }
+    for(const auto& t:tiles) if(t.active){
+        mix((uint32_t)((t.bx<<16)|(t.by<<8)|t.bz));
+        mix((uint32_t)((t.dir<<2)|(t.isChest?2:0)|(t.lit?1:0))); }
+    if(loadedTile>=0 && (size_t)loadedTile<tiles.size()){
+        const BlockEnt& t=tiles[loadedTile];
+        for(int i=0;i<10;i++) mix(t.slot[i]);
+        mix((uint32_t)((t.timer<<8)|t.fuelTime)); }
+    return h;
+}
+
+bool Game::render(){
+    uint32_t sig=visualSignature();
+    if(!forceRedraw && sig==lastSig) return false;
+    lastSig=sig; forceRedraw=false;
+    if(screenId==SCR_PLAY) finishRender();
+    else drawGui();
+    return true;
 }
 
 }

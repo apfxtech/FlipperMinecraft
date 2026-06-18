@@ -68,7 +68,8 @@ public:
 
     bool setup(const GameConfig& config);
     void shutdown();
-    void frame(const Input& in);
+    void simulate(const Input& in);
+    bool render();
     uint8_t& m(int addr) { return ram[addr]; }
 
 private:
@@ -112,6 +113,10 @@ private:
     int cursor = 0;
     int selSlot = -1;
     bool gameOverPending=false;
+
+    uint32_t visualSignature() const;
+    uint32_t lastSig = 0;
+    bool forceRedraw = true;
 };
 
 }

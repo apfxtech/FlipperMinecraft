@@ -194,6 +194,7 @@ struct World {
     bool    slotDirty[WINDOW_CHUNKS][WINDOW_CHUNKS];
 
     int     centerCX = -2, centerCZ = -2;
+    uint32_t revision = 0;
 
     const FileSystem* fs = nullptr;
     void*   file = nullptr;
@@ -223,7 +224,9 @@ struct World {
             (unsigned)z < (unsigned)worldSZ()) {
             int cx = x >> CHUNK_SHIFT, cz = z >> CHUNK_SHIFT, sx = cx % 3, sz = cz % 3;
             if (slotCX[sx][sz] == cx && slotCZ[sx][sz] == cz) {
-                slot[sx][sz][y][z & CHUNK_MASK][x & CHUNK_MASK] = id;
+                uint8_t& cell = slot[sx][sz][y][z & CHUNK_MASK][x & CHUNK_MASK];
+                if (cell != id) revision++;
+                cell = id;
                 if (id != BLOCK_AIR) {
                     if (y > slotMaxY[sx][sz]) slotMaxY[sx][sz] = y;
                 } else if (y == slotMaxY[sx][sz]) {
