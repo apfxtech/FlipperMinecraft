@@ -107,21 +107,40 @@ static void delayMs(uint32_t ms) {
     furi_delay_ms(ms);
 }
 
+enum KeyIndex { B_UP = 0, B_DOWN, B_LEFT, B_RIGHT, B_OK, B_BACK, KEY_COUNT };
+
+static constexpr uint8_t kUp = 1u << B_UP;
+static constexpr uint8_t kDown = 1u << B_DOWN;
+static constexpr uint8_t kLeft = 1u << B_LEFT;
+static constexpr uint8_t kRight = 1u << B_RIGHT;
+static constexpr uint8_t kOk = 1u << B_OK;
+static constexpr uint8_t kBack = 1u << B_BACK;
+static constexpr uint8_t kDpad = kUp | kDown | kLeft | kRight;
+
+static constexpr uint32_t LONG_PRESS_MS = 300;
+static constexpr uint32_t REPEAT_DELAY_MS = 260;
+static constexpr uint32_t REPEAT_RATE_MS = 110;
+
 struct AppState {
     Game* game = nullptr;
     FuriMutex* mutex = nullptr;
+    FuriMutex* inputMutex = nullptr;
     ViewPort* view_port = nullptr;
 
-    volatile uint8_t held = 0;
-    volatile uint8_t ev_direction = 0;
-    volatile uint8_t ev_ok_direction = 0;
-    volatile bool ok_chord_used = false;
+    uint8_t held = 0;
+    uint8_t pressLatch = 0;
+    uint8_t releaseLatch = 0;
+    uint32_t downTick[KEY_COUNT] = {};
+    uint32_t holdDur[KEY_COUNT] = {};
 
-    volatile bool ev_ok_short = false;
-    volatile bool ev_ok_long = false;
-    volatile bool ev_back_short = false;
-    volatile bool ev_back_long = false;
-    volatile bool ev_exit = false;
+    bool okConsumed = false;
+    bool okLongFired = false;
+    bool backConsumed = false;
+    bool backLongFired = false;
+    bool exitFired = false;
+    uint32_t dirNextRepeat[4] = {};
+
+    bool ev_exit = false;
 };
 
 static void packSsd(const Framebuffer& fb, uint8_t* ssd) {
@@ -148,134 +167,167 @@ static void drawCb(Canvas* canvas, void* ctx) {
     furi_mutex_release(st->mutex);
 }
 
-static void inputCb(InputEvent* ev, void* ctx) {
-    AppState* st = reinterpret_cast<AppState*>(ctx);
-
-    switch(ev->key) {
-    case InputKeyUp:
-        if(ev->type == InputTypePress || ev->type == InputTypeRepeat) {
-            st->held |= 0x01;
-            st->ev_direction |= 0x01;
-            if(st->held & 0x10) {
-                st->ev_direction &= ~0x01;
-                st->ev_ok_direction |= 0x01;
-                st->ok_chord_used = true;
-            }
-        } else if(ev->type == InputTypeRelease) {
-            st->held &= ~0x01;
-        }
-        break;
-    case InputKeyDown:
-        if(ev->type == InputTypePress || ev->type == InputTypeRepeat) {
-            st->held |= 0x02;
-            st->ev_direction |= 0x02;
-            if(st->held & 0x10) {
-                st->ev_direction &= ~0x02;
-                st->ev_ok_direction |= 0x02;
-                st->ok_chord_used = true;
-            }
-        } else if(ev->type == InputTypeRelease) {
-            st->held &= ~0x02;
-        }
-        break;
-    case InputKeyLeft:
-        if(ev->type == InputTypePress || ev->type == InputTypeRepeat) {
-            st->held |= 0x04;
-            st->ev_direction |= 0x04;
-            if(st->held & 0x10) {
-                st->ev_direction &= ~0x04;
-                st->ev_ok_direction |= 0x04;
-                st->ok_chord_used = true;
-            }
-        } else if(ev->type == InputTypeRelease) {
-            st->held &= ~0x04;
-        }
-        break;
-    case InputKeyRight:
-        if(ev->type == InputTypePress || ev->type == InputTypeRepeat) {
-            st->held |= 0x08;
-            st->ev_direction |= 0x08;
-            if(st->held & 0x10) {
-                st->ev_direction &= ~0x08;
-                st->ev_ok_direction |= 0x08;
-                st->ok_chord_used = true;
-            }
-        } else if(ev->type == InputTypeRelease) {
-            st->held &= ~0x08;
-        }
-        break;
-    case InputKeyOk:
-        if(ev->type == InputTypePress) {
-            st->held |= 0x10;
-            uint8_t directions = st->held & 0x0F;
-            st->ok_chord_used = directions != 0;
-            st->ev_direction &= ~directions;
-            st->ev_ok_direction |= directions;
-        } else if(ev->type == InputTypeShort) {
-            if(!st->ok_chord_used) st->ev_ok_short = true;
-        } else if(ev->type == InputTypeLong) {
-            if(!st->ok_chord_used) st->ev_ok_long = true;
-        } else if(ev->type == InputTypeRelease) {
-            st->held &= ~0x10;
-        }
-        break;
-    case InputKeyBack:
-        if(ev->type == InputTypePress && (st->held & 0x10)) {
-            st->ev_exit = true;
-            st->ok_chord_used = true;
-        }
-        if(ev->type == InputTypeShort) st->ev_back_short = true;
-        if(ev->type == InputTypeLong) st->ev_back_long = true;
-        break;
-    default:
-        break;
+static int keyIndex(InputKey key) {
+    switch(key) {
+    case InputKeyUp: return B_UP;
+    case InputKeyDown: return B_DOWN;
+    case InputKeyLeft: return B_LEFT;
+    case InputKeyRight: return B_RIGHT;
+    case InputKeyOk: return B_OK;
+    case InputKeyBack: return B_BACK;
+    default: return -1;
     }
 }
 
-static Input buildGameInput(AppState* st) {
+static void inputCb(InputEvent* ev, void* ctx) {
+    AppState* st = reinterpret_cast<AppState*>(ctx);
+    int idx = keyIndex(ev->key);
+    if(idx < 0) return;
+
+    uint8_t bit = static_cast<uint8_t>(1u << idx);
+    uint32_t now = furi_get_tick();
+
+    if(ev->type == InputTypePress) {
+        furi_mutex_acquire(st->inputMutex, FuriWaitForever);
+        st->held |= bit;
+        st->pressLatch |= bit;
+        st->downTick[idx] = now;
+        furi_mutex_release(st->inputMutex);
+    } else if(ev->type == InputTypeRelease) {
+        furi_mutex_acquire(st->inputMutex, FuriWaitForever);
+        st->held &= ~bit;
+        st->releaseLatch |= bit;
+        st->holdDur[idx] = now - st->downTick[idx];
+        furi_mutex_release(st->inputMutex);
+    }
+}
+
+static Input pollInput(AppState* st) {
+    uint32_t now = furi_get_tick();
+
+    furi_mutex_acquire(st->inputMutex, FuriWaitForever);
     uint8_t held = st->held;
-    uint8_t direction = st->ev_direction;
-    uint8_t ok_direction = st->ev_ok_direction;
-    bool ok_s = st->ev_ok_short;
-    bool ok_l = st->ev_ok_long;
-    bool back_s = st->ev_back_short;
-    bool back_l = st->ev_back_long;
+    uint8_t pressLatch = st->pressLatch;
+    uint8_t releaseLatch = st->releaseLatch;
+    uint32_t downTick[KEY_COUNT];
+    uint32_t holdDur[KEY_COUNT];
+    for(int i = 0; i < KEY_COUNT; ++i) {
+        downTick[i] = st->downTick[i];
+        holdDur[i] = st->holdDur[i];
+    }
+    st->pressLatch = 0;
+    st->releaseLatch = 0;
+    furi_mutex_release(st->inputMutex);
 
-    st->ev_direction = 0;
-    st->ev_ok_direction = 0;
-    st->ev_ok_short = false;
-    st->ev_ok_long = false;
-    st->ev_back_short = false;
-    st->ev_back_long = false;
+    const bool okHeld = held & kOk;
+    const bool backHeld = held & kBack;
+    const bool play = st->game->screenId == SCR_PLAY;
 
-    bool in_menu = st->game->screenId != SCR_PLAY;
+    if(pressLatch & kOk) {
+        st->okConsumed = false;
+        st->okLongFired = false;
+    }
+    if(pressLatch & kBack) {
+        st->backConsumed = false;
+        st->backLongFired = false;
+    }
+
+    if(okHeld && backHeld) {
+        if(!st->exitFired) {
+            st->ev_exit = true;
+            st->exitFired = true;
+        }
+        st->okConsumed = true;
+        st->backConsumed = true;
+    } else if(!okHeld && !backHeld) {
+        st->exitFired = false;
+    }
+
+    if(okHeld && (held & kDpad)) st->okConsumed = true;
+
+    auto dirFires = [&](int i, bool active) -> bool {
+        uint8_t bit = static_cast<uint8_t>(1u << i);
+        if(!active) {
+            st->dirNextRepeat[i] = 0;
+            return false;
+        }
+        if(pressLatch & bit) {
+            st->dirNextRepeat[i] = now + REPEAT_DELAY_MS;
+            return true;
+        }
+        if(!(held & bit)) {
+            st->dirNextRepeat[i] = 0;
+            return false;
+        }
+        if(st->dirNextRepeat[i] == 0) {
+            st->dirNextRepeat[i] = now + REPEAT_DELAY_MS;
+            return true;
+        }
+        if(static_cast<int32_t>(now - st->dirNextRepeat[i]) >= 0) {
+            st->dirNextRepeat[i] = now + REPEAT_RATE_MS;
+            return true;
+        }
+        return false;
+    };
+
     Input in{};
 
-    if(in_menu) {
-        uint8_t nav = ok_direction ? ok_direction : direction;
-        if(nav & 0x01) in.navY = 1;
-        if(nav & 0x02) in.navY = -1;
-        if(nav & 0x04) in.navX = -1;
-        if(nav & 0x08) in.navX = 1;
-        if(ok_direction) in.distribute = true;
-        if(ok_s) in.menuSelect = true;
-        if(back_s || back_l) in.openInventory = true;
-    } else {
-        if(ok_direction) {
-            if(ok_direction & 0x01) in.pitch = 1;
-            if(ok_direction & 0x02) in.pitch = -1;
-            if(ok_direction & 0x04) in.slotScroll = -1;
-            if(ok_direction & 0x08) in.slotScroll = 1;
+    if(play) {
+        if(okHeld) {
+            if(dirFires(B_UP, true)) in.pitch = 1;
+            if(dirFires(B_DOWN, true)) in.pitch = -1;
+            if(dirFires(B_LEFT, true)) in.slotScroll = -1;
+            if(dirFires(B_RIGHT, true)) in.slotScroll = 1;
         } else {
-            if(held & 0x01) in.forward = 8;
-            if(held & 0x02) in.forward = -8;
-            if(held & 0x04) in.turn = 1;
-            if(held & 0x08) in.turn = -1;
+            if(held & kUp) in.forward = 8;
+            if(held & kDown) in.forward = -8;
+            if(held & kLeft) in.turn = 1;
+            if(held & kRight) in.turn = -1;
+            for(int i = 0; i < 4; ++i) st->dirNextRepeat[i] = 0;
         }
-        if(ok_s) in.placePressed = true;
-        if(ok_l) in.breakPressed = true;
-        if(back_s) in.jump = true;
-        if(back_l) in.openInventory = true;
+
+        if(okHeld && !st->okConsumed && !st->okLongFired &&
+           static_cast<int32_t>(now - downTick[B_OK]) >= (int32_t)LONG_PRESS_MS) {
+            in.breakPressed = true;
+            st->okLongFired = true;
+            st->okConsumed = true;
+        }
+        if((releaseLatch & kOk) && !st->okConsumed && !st->okLongFired &&
+           holdDur[B_OK] < LONG_PRESS_MS) {
+            in.placePressed = true;
+        }
+
+        if(backHeld && !st->backConsumed && !st->backLongFired &&
+           static_cast<int32_t>(now - downTick[B_BACK]) >= (int32_t)LONG_PRESS_MS) {
+            in.openInventory = true;
+            st->backLongFired = true;
+            st->backConsumed = true;
+        }
+        if((releaseLatch & kBack) && !st->backConsumed && !st->backLongFired &&
+           holdDur[B_BACK] < LONG_PRESS_MS) {
+            in.jump = true;
+        }
+    } else {
+        const bool distribute = okHeld;
+        if(dirFires(B_UP, true)) {
+            in.navY = 1;
+            in.distribute = distribute;
+        }
+        if(dirFires(B_DOWN, true)) {
+            in.navY = -1;
+            in.distribute = distribute;
+        }
+        if(dirFires(B_LEFT, true)) {
+            in.navX = -1;
+            in.distribute = distribute;
+        }
+        if(dirFires(B_RIGHT, true)) {
+            in.navX = 1;
+            in.distribute = distribute;
+        }
+
+        if((releaseLatch & kOk) && !st->okConsumed) in.menuSelect = true;
+        if((releaseLatch & kBack) && !st->backConsumed) in.openInventory = true;
     }
 
     return in;
@@ -301,7 +353,10 @@ static void runGame(Game& game, Gui* gui, const char* path) {
 
     st->game = &game;
     st->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
-    if(!st->mutex) {
+    st->inputMutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    if(!st->mutex || !st->inputMutex) {
+        if(st->mutex) furi_mutex_free(st->mutex);
+        if(st->inputMutex) furi_mutex_free(st->inputMutex);
         delete st;
         return;
     }
@@ -309,6 +364,7 @@ static void runGame(Game& game, Gui* gui, const char* path) {
     GameConfig config = {&g_files, path};
     if(!game.setup(config)) {
         furi_mutex_free(st->mutex);
+        furi_mutex_free(st->inputMutex);
         delete st;
         return;
     }
@@ -324,7 +380,7 @@ static void runGame(Game& game, Gui* gui, const char* path) {
     view_port_update(st->view_port);
 
     while(true) {
-        Input in = buildGameInput(st);
+        Input in = pollInput(st);
         if(st->ev_exit) break;
 
         furi_mutex_acquire(st->mutex, FuriWaitForever);
@@ -343,6 +399,7 @@ static void runGame(Game& game, Gui* gui, const char* path) {
     gui_remove_view_port(gui, st->view_port);
     view_port_free(st->view_port);
     furi_mutex_free(st->mutex);
+    furi_mutex_free(st->inputMutex);
     delete st;
 }
 
