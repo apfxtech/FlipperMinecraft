@@ -70,6 +70,7 @@ constexpr int SMELTTIME            = 0xC0;
 constexpr int LEAVES_SAPLING_PROBABILITY = 50; 
 constexpr int LEAVES_STICK_PROBABILITY   = 70; 
 constexpr int LEAVES_APPLE_PROBABILITY   = 80; 
+constexpr int LEAF_LOG_RADIUS      = 3;
 
 static_assert(CHUNK_SIZE == 8, "getBlock fast path assumes 8-block chunks");
 static_assert((1 << CHUNK_SHIFT) == CHUNK_SIZE, "CHUNK_SHIFT must match CHUNK_SIZE");

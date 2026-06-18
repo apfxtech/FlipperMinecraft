@@ -20,7 +20,7 @@ bool Game::setup(const GameConfig& config) {
     m(M_ONGROUND)=0xFF; velYsub=0; posYsub=0;
     m(M_CROUCHING)=0xFF;
     forceRedraw=true; lastSig=0;
-    m(M_HEALTH)=MAXHEALTH; m(M_LOGSINWORLD)=4;
+    m(M_HEALTH)=MAXHEALTH;
 
     items.clear();
     loadStorageDirectory();   // rebuild chest/furnace headers from disk
@@ -165,7 +165,7 @@ void Game::loadInventory(){
     } else {
         m(M_INVENTORY+0)=0x14; m(M_INVENTORY+1)=0x55; m(M_INVENTORY+2)=0x89;
         m(M_INVENTORY+3)=0xFE; m(M_INVENTORY+4)=0xFF;
-        m(M_HEALTH)=MAXHEALTH; m(M_LOGSINWORLD)=4;
+        m(M_HEALTH)=MAXHEALTH;
     }
 }
 void Game::saveInventory(){
@@ -204,7 +204,6 @@ void Game::handleBreakAndPlace(const Input& in){
     int bx=hit.bx,by=hit.by,bz=hit.bz;
     if(in.breakPressed&&id!=-1){
         if(id==BLOCK_SAPLING)return;
-        if(id==BLOCK_LOG)m(M_LOGSINWORLD)=(uint8_t)(m(M_LOGSINWORLD)-1);
         int slot=m(M_INVENTORYSLOT)&0x0F;int held=m(M_INVENTORY+slot);int strength=STRENGTH_FIST;
         if(held>=ITEM_NONSTACKABLE&&held<=ITEM_SHEARS){
             int low=held&0x03,tier=(held>>2)&0x03,toolStrength=STRENGTH_WOOD+tier;
@@ -265,7 +264,6 @@ void Game::handleBreakAndPlace(const Input& in){
             b.storage=allocStorage(); b.loaded=false;
             if(b.storage>=0){uint8_t sb[STORAGE_SLOT_SIZE];packStorage(b,sb);world.writeStorageSlot(b.storage,sb);}
             tiles.push_back(b);}
-        if(blockId==BLOCK_LOG)m(M_LOGSINWORLD)=(uint8_t)(m(M_LOGSINWORLD)+1);
         if(item<0xF0){int c=item-1; if((c&0x0F)==0)c=0; m(M_INVENTORY+slot)=(uint8_t)c;} else m(M_INVENTORY+slot)=0;
     }
 }
@@ -412,6 +410,12 @@ void Game::updateAllFurnaces(){
 void Game::doRandomTicks(){
     auto above=[&](int x,int y,int z){uint8_t a=world.getBlock(x,y+1,z);
         return a==BLOCK_AIR||a==BLOCK_LEAVES||a==BLOCK_GLASS||a==BLOCK_SAPLING;};
+    auto nearLog=[&](int x,int y,int z){
+        for(int dx=-LEAF_LOG_RADIUS;dx<=LEAF_LOG_RADIUS;dx++)
+            for(int dz=-LEAF_LOG_RADIUS;dz<=LEAF_LOG_RADIUS;dz++)
+                for(int dy=-1;dy<=1;dy++)
+                    if(world.getBlock(x+dx,y+dy,z+dz)==BLOCK_LOG)return true;
+        return false;};
 
     int pbx=(playerX+PLAYERHALFWIDTH)/BLOCKSIZE, pbz=(playerZ+PLAYERHALFWIDTH)/BLOCKSIZE;
     ActiveWindow win=activeWindowAround(pbx,pbz,world.worldSX(),world.worldSZ());
@@ -423,7 +427,7 @@ void Game::doRandomTicks(){
                 if(world.getBlock(gx,gy,gz)==BLOCK_GRASS)f=true;
             if(f){world.setBlock(x,y,z,BLOCK_GRASS);}}
         else if(b==BLOCK_GRASS){ if(!above(x,y,z)){world.setBlock(x,y,z,BLOCK_DIRT);}}
-        else if(b==BLOCK_LEAVES){ if(m(M_LOGSINWORLD)==0){world.setBlock(x,y,z,BLOCK_AIR);
+        else if(b==BLOCK_LEAVES){ if(!nearLog(x,y,z)){world.setBlock(x,y,z,BLOCK_AIR);
                 int r=rng(); if(r<LEAVES_SAPLING_PROBABILITY)createEntity(x,y,z,ENTITY_SAPLING);
                 else if(r<LEAVES_STICK_PROBABILITY)createEntity(x,y,z,ENTITY_STICK);
                 else if(r<LEAVES_APPLE_PROBABILITY)createEntity(x,y,z,ENTITY_APPLE);}}
@@ -437,12 +441,10 @@ void Game::doRandomTicks(){
             for(int lx=x-1;lx<=x+1;lx++)for(int ly=upperTop-1;ly<=upperTop;ly++)
                 for(int lz=z-1;lz<=z+1;lz++)
                     if(world.getBlock(lx,ly,lz)==BLOCK_AIR)world.setBlock(lx,ly,lz,BLOCK_LEAVES);
-            int logs=0;
             for(int ty=upperTop-1;ty>=y;ty--){
                 uint8_t old=world.getBlock(x,ty,z);
-                if(old==BLOCK_AIR||old==BLOCK_LEAVES){world.setBlock(x,ty,z,BLOCK_LOG);logs++;}
+                if(old==BLOCK_AIR||old==BLOCK_LEAVES)world.setBlock(x,ty,z,BLOCK_LOG);
             }
-            m(M_LOGSINWORLD)=(uint8_t)(m(M_LOGSINWORLD)+logs);
         }
     }
 }

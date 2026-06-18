@@ -14,7 +14,8 @@ enum Mem {
     M_PREVZ=10, // legacy not used (prev player Z)
     M_INVENTORY=11, M_INVENTORYSLOT=26, M_CRAFTINGGRID=27, M_CRAFTINGOUTPUT=36,
     M_PERMSELSLOT=37, // legacy not used (old: m(M_PERMSELSLOT)=0xFF on crafting/inventory open)
-    M_HEALTH=41, M_LOGSINWORLD=44,
+    M_HEALTH=41,
+    M_LOGSINWORLD=44, // legacy not used (leaves now decay locally; slot kept for save compatibility)
 };
 
 enum ScreenId { SCR_PLAY, SCR_INVENTORY, SCR_CRAFTING, SCR_FURNACE, SCR_CHEST, SCR_GAMEOVER };
